@@ -1,0 +1,37 @@
+Alta Disponibilidad y Clustering
+
+mkdir -p ~/PruebaRsync
+cd ~/PruebaRsync
+touch archivo{001..100}.txt
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+ssh-copy-id usuario@ip_destino
+ssh usuario@ip_destino
+rsync -avz ~/PruebaRsync/ usuario@ip_destino:~/PruebaRsync/
+cat << 'EOF' > ~/sync_rsync.sh
+#!/bin/bash
+echo "Ejecutando rsync en $(date)" >> ~/rsync.log
+rsync -avz ~/PruebaRsync/ usuario@ip_destino:~/PruebaRsync/ >> ~/rsync.log 2>&1
+echo "----------------------------------------" >> ~/rsync.log
+EOF
+chmod +x ~/sync_rsync.sh
+crontab -e
+# Añadir línea al crontab:
+* * * * * ~/sync_rsync.sh
+tail -n 20 ~/rsync.log
+sudo dnf install pcs corosync pacemaker -y
+sudo systemctl enable pcsd --now
+sudo pcs host auth 10.0.0.70 10.0.0.74 -u hacluster -p TU_CONTRASENA
+sudo pcs cluster destroy --all
+sudo pcs cluster setup --force --name MiCluster 10.0.0.70 10.0.0.74
+sudo pcs cluster start --all
+sudo pcs cluster enable --all
+sudo pcs status
+sudo pcs resource create ClusterIP ocf:heartbeat:IPaddr2 ip=10.0.0.100 cidr_netmask=24 op monitor interval=30s
+sudo pcs resource status
+sudo dnf install httpd keepalived -y
+sudo systemctl enable httpd --now
+sudo systemctl enable keepalived --now
+echo "Server1" > /var/www/html/index.html  # en nodo 1
+echo "Server2" > /var/www/html/index.html  # en nodo 2
+sudo systemctl restart httpd
+sudo systemctl restart keepalived
