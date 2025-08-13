@@ -35,3 +35,96 @@ echo "Server1" > /var/www/html/index.html  # en nodo 1
 echo "Server2" > /var/www/html/index.html  # en nodo 2
 sudo systemctl restart httpd
 sudo systemctl restart keepalived
+
+ALTA DISPONIBILIDAD Y CLUSTERING
+
+------------------------------------------------------------
+Práctica 1 – Sincronización de carpetas con Rsync (1 pts)
+
+# Crear carpeta y 100 archivos en servidor primario
+mkdir -p ~/PruebaRsync
+cd ~/PruebaRsync
+touch archivo{001..100}.txt
+
+# Configurar autenticación SSH sin contraseña al servidor secundario
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+ssh-copy-id usuario@ip_destino
+
+# Probar conexión SSH
+ssh usuario@ip_destino
+
+# Sincronizar carpeta al servidor remoto
+rsync -avz ~/PruebaRsync/ usuario@ip_destino:~/PruebaRsync/
+
+# Crear script de sincronización
+cat << 'EOF' > ~/sync_rsync.sh
+#!/bin/bash
+echo "Ejecutando rsync en $(date)" >> ~/rsync.log
+rsync -avz ~/PruebaRsync/ usuario@ip_destino:~/PruebaRsync/ >> ~/rsync.log 2>&1
+echo "----------------------------------------" >> ~/rsync.log
+EOF
+chmod +x ~/sync_rsync.sh
+
+# Crear crontab para sincronización cada 1 minuto
+crontab -e
+# Añadir línea:
+* * * * * ~/sync_rsync.sh
+
+# Verificar log
+tail -n 20 ~/rsync.log
+
+------------------------------------------------------------
+Práctica 2 – Instalación y configuración del Cluster (2 pts)
+
+# Instalar paquetes de HA
+sudo dnf install pcs corosync pacemaker -y
+
+# Habilitar servicio PCS
+sudo systemctl enable pcsd --now
+
+# Autenticación entre nodos
+sudo pcs host auth 10.0.0.70 10.0.0.74 -u hacluster -p TU_CONTRASENA
+
+# Destruir cualquier cluster previo
+sudo pcs cluster destroy --all
+
+# Configurar cluster con nombre MiCluster
+sudo pcs cluster setup --force --name MiCluster 10.0.0.70 10.0.0.74
+
+# Iniciar y habilitar cluster
+sudo pcs cluster start --all
+sudo pcs cluster enable --all
+
+# Verificar estado del cluster
+sudo pcs status
+
+# Crear recurso de IP flotante
+sudo pcs resource create ClusterIP ocf:heartbeat:IPaddr2 ip=10.0.0.100 cidr_netmask=24 op monitor interval=30s
+
+# Verificar recurso
+sudo pcs resource status
+
+# Prueba: hacer ping a IP flotante y alternar reinicios
+ping 10.0.0.100
+
+------------------------------------------------------------
+Práctica 3 – Cluster de Alta Disponibilidad HTTP (1 pts)
+
+# Instalar Apache y Keepalived en ambos nodos
+sudo dnf install httpd keepalived -y
+sudo systemctl enable httpd --now
+sudo systemctl enable keepalived --now
+
+# Desplegar páginas HTML diferenciando servidores
+# Nodo 1
+echo "Server1" > /var/www/html/index.html
+# Nodo 2
+echo "Server2" > /var/www/html/index.html
+
+# Reiniciar servicios
+sudo systemctl restart httpd
+sudo systemctl restart keepalived
+
+# Validar HA:
+# 1. Acceder a la IP flotante desde un navegador, debe mostrar Server1 o Server2 según nodo activo
+# 2. Apagar un nodo y verificar que el otro nodo mantenga el servicio disponible
